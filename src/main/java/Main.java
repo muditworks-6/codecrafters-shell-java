@@ -17,13 +17,24 @@ public class Main {
         return c == '"' || c == '\\' || c == '$' || c == '`' || c == '\n';
     }
 
-    private static void printLine(String line, File outFile) {
+    private static void touchFile(File file, boolean append) {
+        try (FileOutputStream fos = new FileOutputStream(file, append)) {
+            // Opening (and immediately closing) creates the file if it's missing.
+            // In append mode this leaves any existing content untouched; in
+            // overwrite mode it truncates it - matching how a shell opens the
+            // redirect target before the command even runs.
+        } catch (IOException e) {
+            System.err.println(file.getPath() + ": " + e.getMessage());
+        }
+    }
+
+    private static void printLine(String line, File outFile, boolean append) {
         if (outFile == null) {
             System.out.println(line);
             return;
         }
 
-        try (PrintStream out = new PrintStream(new FileOutputStream(outFile))) {
+        try (PrintStream out = new PrintStream(new FileOutputStream(outFile, append))) {
             out.println(line);
         } catch (IOException e) {
             System.err.println(outFile.getPath() + ": " + e.getMessage());
@@ -161,29 +172,32 @@ public class Main {
                 continue;
             }
 
+            // Extract stdout redirection (>, 1>, >>, 1>>), tracking whether
+            // it should append rather than overwrite.
+            String outputTarget = null;
             boolean appendOutput = false;
-String outputTarget = null;
+            for (int idx = 0; idx < tokens.size(); idx++) {
+                String t = tokens.get(idx);
+                if (idx + 1 >= tokens.size()) {
+                    continue;
+                }
+                if (t.equals(">>") || t.equals("1>>")) {
+                    outputTarget = tokens.get(idx + 1);
+                    appendOutput = true;
+                    tokens.remove(idx + 1);
+                    tokens.remove(idx);
+                    break;
+                }
+                if (t.equals(">") || t.equals("1>")) {
+                    outputTarget = tokens.get(idx + 1);
+                    appendOutput = false;
+                    tokens.remove(idx + 1);
+                    tokens.remove(idx);
+                    break;
+                }
+            }
 
-for (int idx = 0; idx < tokens.size(); idx++) {
-    String t = tokens.get(idx);
-
-    if ((t.equals(">") || t.equals("1>")) && idx + 1 < tokens.size()) {
-        outputTarget = tokens.get(idx + 1);
-        tokens.remove(idx + 1);
-        tokens.remove(idx);
-        break;
-    }
-
-    if ((t.equals(">>") || t.equals("1>>")) && idx + 1 < tokens.size()) {
-        outputTarget = tokens.get(idx + 1);
-        appendOutput = true;
-        tokens.remove(idx + 1);
-        tokens.remove(idx);
-        break;
-    }
-}
-
-String errorTarget = extractRedirect(tokens, "2>", null);
+            // Extract stderr redirection (2>). No append variant yet.
             String errorTarget = extractRedirect(tokens, "2>", null);
 
             if (tokens.isEmpty()) {
@@ -198,6 +212,7 @@ String errorTarget = extractRedirect(tokens, "2>", null);
                 outFile = outputTarget.startsWith("/")
                         ? new File(outputTarget)
                         : new File(currentDirectory, outputTarget);
+                touchFile(outFile, appendOutput);
             }
 
             File errFile = null;
@@ -205,11 +220,8 @@ String errorTarget = extractRedirect(tokens, "2>", null);
                 errFile = errorTarget.startsWith("/")
                         ? new File(errorTarget)
                         : new File(currentDirectory, errorTarget);
-                try {
-                    new FileOutputStream(errFile).close();
-                } catch (IOException ignored) {
+                touchFile(errFile, false);
             }
-        }
 
             if (command.equals("exit")) {
                 int exitCode = 0;
@@ -231,7 +243,7 @@ String errorTarget = extractRedirect(tokens, "2>", null);
                     }
                     sb.append(parts[i]);
                 }
-                printLine(sb.toString(), outFile);
+                printLine(sb.toString(), outFile, appendOutput);
                 continue;
             }
 
@@ -239,11 +251,11 @@ String errorTarget = extractRedirect(tokens, "2>", null);
                 if (parts.length > 1) {
                     String target = parts[1];
                     if (BUILTINS.contains(target)) {
-                        printLine(target + " is a shell builtin", outFile);
+                        printLine(target + " is a shell builtin", outFile, appendOutput);
                     } else {
                         String executable = findExecutable(target);
                         if (executable != null) {
-                            printLine(target + " is " + executable, outFile);
+                            printLine(target + " is " + executable, outFile, appendOutput);
                         } else {
                             printErrLine(target + ": not found", errFile);
                         }
@@ -253,7 +265,7 @@ String errorTarget = extractRedirect(tokens, "2>", null);
             }
 
             if (command.equals("pwd")) {
-                printLine(currentDirectory, outFile);
+                printLine(currentDirectory, outFile, appendOutput);
                 continue;
             }
 
@@ -293,9 +305,13 @@ String errorTarget = extractRedirect(tokens, "2>", null);
                     ProcessBuilder pb = new ProcessBuilder(parts);
                     pb.directory(new File(currentDirectory));
                     pb.redirectInput(ProcessBuilder.Redirect.INHERIT);
-                    pb.redirectOutput(outFile != null
-                            ? ProcessBuilder.Redirect.to(outFile)
-                            : ProcessBuilder.Redirect.INHERIT);
+                    if (outFile != null) {
+                        pb.redirectOutput(appendOutput
+                                ? ProcessBuilder.Redirect.appendTo(outFile)
+                                : ProcessBuilder.Redirect.to(outFile));
+                    } else {
+                        pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
+                    }
                     pb.redirectError(errFile != null
                             ? ProcessBuilder.Redirect.to(errFile)
                             : ProcessBuilder.Redirect.INHERIT);
