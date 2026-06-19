@@ -30,7 +30,7 @@ public class Main {
         }
     }
 
-    private static void printError(String line, File errFile) {
+    private static void printErrLine(String line, File errFile) {
         if (errFile == null) {
             System.err.println(line);
             return;
@@ -65,8 +65,7 @@ public class Main {
             if (inDoubleQuote) {
                 if (c == '"') {
                     inDoubleQuote = false;
-                } else if (c == '\\' && i + 1 < input.length()
-                        && isEscapableInDoubleQuotes(input.charAt(i + 1))) {
+                } else if (c == '\\' && i + 1 < input.length() && isEscapableInDoubleQuotes(input.charAt(i + 1))) {
                     i++;
                     current.append(input.charAt(i));
                 } else {
@@ -116,21 +115,32 @@ public class Main {
         return tokens;
     }
 
+    private static String extractRedirect(List<String> tokens, String op1, String op2) {
+        for (int idx = 0; idx < tokens.size(); idx++) {
+            String t = tokens.get(idx);
+            boolean matches = t.equals(op1) || (op2 != null && t.equals(op2));
+            if (matches && idx + 1 < tokens.size()) {
+                String target = tokens.get(idx + 1);
+                tokens.remove(idx + 1);
+                tokens.remove(idx);
+                return target;
+            }
+        }
+        return null;
+    }
+
     private static String findExecutable(String command) {
         String path = System.getenv("PATH");
-
         if (path == null) {
             return null;
         }
 
         for (String dir : path.split(File.pathSeparator)) {
             File file = new File(dir, command);
-
             if (file.isFile() && file.canExecute()) {
                 return file.getPath();
             }
         }
-
         return null;
     }
 
@@ -147,29 +157,12 @@ public class Main {
             String input = scanner.nextLine();
 
             List<String> tokens = tokenize(input);
-
             if (tokens.isEmpty()) {
                 continue;
             }
 
-            String outputTarget = null;
-            String errorTarget = null;
-
-            for (int idx = 0; idx < tokens.size(); idx++) {
-                String t = tokens.get(idx);
-
-                if ((t.equals(">") || t.equals("1>")) && idx + 1 < tokens.size()) {
-                    outputTarget = tokens.get(idx + 1);
-                    tokens.remove(idx + 1);
-                    tokens.remove(idx);
-                    idx--;
-                } else if (t.equals("2>") && idx + 1 < tokens.size()) {
-                    errorTarget = tokens.get(idx + 1);
-                    tokens.remove(idx + 1);
-                    tokens.remove(idx);
-                    idx--;
-                }
-            }
+            String outputTarget = extractRedirect(tokens, ">", "1>");
+            String errorTarget = extractRedirect(tokens, "2>", null);
 
             if (tokens.isEmpty()) {
                 continue;
@@ -194,7 +187,6 @@ public class Main {
 
             if (command.equals("exit")) {
                 int exitCode = 0;
-
                 if (parts.length > 1) {
                     try {
                         exitCode = Integer.parseInt(parts[1]);
@@ -202,20 +194,17 @@ public class Main {
                         exitCode = 0;
                     }
                 }
-
                 System.exit(exitCode);
             }
 
             if (command.equals("echo")) {
                 StringBuilder sb = new StringBuilder();
-
                 for (int i = 1; i < parts.length; i++) {
                     if (i > 1) {
                         sb.append(" ");
                     }
                     sb.append(parts[i]);
                 }
-
                 printLine(sb.toString(), outFile);
                 continue;
             }
@@ -223,20 +212,17 @@ public class Main {
             if (command.equals("type")) {
                 if (parts.length > 1) {
                     String target = parts[1];
-
                     if (BUILTINS.contains(target)) {
                         printLine(target + " is a shell builtin", outFile);
                     } else {
                         String executable = findExecutable(target);
-
                         if (executable != null) {
                             printLine(target + " is " + executable, outFile);
                         } else {
-                            printError(target + ": not found", errFile);
+                            printErrLine(target + ": not found", errFile);
                         }
                     }
                 }
-
                 continue;
             }
 
@@ -254,7 +240,6 @@ public class Main {
                         target = (home != null) ? home : target;
                     } else if (target.startsWith("~/")) {
                         String home = System.getenv("HOME");
-
                         if (home != null) {
                             target = home + target.substring(1);
                         }
@@ -271,10 +256,9 @@ public class Main {
                             currentDirectory = dir.getPath();
                         }
                     } else {
-                        printError("cd: " + target + ": No such file or directory", errFile);
+                        printErrLine("cd: " + target + ": No such file or directory", errFile);
                     }
                 }
-
                 continue;
             }
 
@@ -282,29 +266,23 @@ public class Main {
                 try {
                     ProcessBuilder pb = new ProcessBuilder(parts);
                     pb.directory(new File(currentDirectory));
-
                     pb.redirectInput(ProcessBuilder.Redirect.INHERIT);
-
-                    pb.redirectOutput(
-                            outFile != null
-                                    ? ProcessBuilder.Redirect.to(outFile)
-                                    : ProcessBuilder.Redirect.INHERIT);
-
-                    pb.redirectError(
-                            errFile != null
-                                    ? ProcessBuilder.Redirect.to(errFile)
-                                    : ProcessBuilder.Redirect.INHERIT);
-
+                    pb.redirectOutput(outFile != null
+                            ? ProcessBuilder.Redirect.to(outFile)
+                            : ProcessBuilder.Redirect.INHERIT);
+                    pb.redirectError(errFile != null
+                            ? ProcessBuilder.Redirect.to(errFile)
+                            : ProcessBuilder.Redirect.INHERIT);
                     Process process = pb.start();
                     process.waitFor();
                 } catch (IOException | InterruptedException e) {
-                    printError(command + ": command not found", errFile);
+                    printErrLine(command + ": command not found", errFile);
                 }
-
                 continue;
             }
 
-            printError(command + ": command not found", errFile);
+            // For now, every other command is treated as invalid.
+            printErrLine(command + ": command not found", errFile);
         }
     }
 }
