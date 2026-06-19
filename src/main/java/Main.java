@@ -1,13 +1,55 @@
 import java.io.File;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Scanner;
 import java.util.Set;
 
 public class Main {
     private static final Set<String> BUILTINS = new HashSet<>(Arrays.asList("echo", "exit", "type", "pwd", "cd"));
     private static String currentDirectory = System.getProperty("user.dir");
+
+    private static List<String> tokenize(String input) {
+        List<String> tokens = new ArrayList<>();
+        StringBuilder current = new StringBuilder();
+        boolean inSingleQuote = false;
+        boolean hasToken = false;
+
+        for (int i = 0; i < input.length(); i++) {
+            char c = input.charAt(i);
+
+            if (c == '\'') {
+                inSingleQuote = !inSingleQuote;
+                hasToken = true;
+                continue;
+            }
+
+            if (inSingleQuote) {
+                current.append(c);
+                continue;
+            }
+
+            if (Character.isWhitespace(c)) {
+                if (hasToken) {
+                    tokens.add(current.toString());
+                    current.setLength(0);
+                    hasToken = false;
+                }
+                continue;
+            }
+
+            current.append(c);
+            hasToken = true;
+        }
+
+        if (hasToken) {
+            tokens.add(current.toString());
+        }
+
+        return tokens;
+    }
 
     private static String findExecutable(String command) {
         String path = System.getenv("PATH");
@@ -36,11 +78,12 @@ public class Main {
 
             String input = scanner.nextLine();
 
-            if (input.isEmpty()) {
+            List<String> tokens = tokenize(input);
+            if (tokens.isEmpty()) {
                 continue;
             }
 
-            String[] parts = input.split("\\s+");
+            String[] parts = tokens.toArray(new String[0]);
             String command = parts[0];
 
             if (command.equals("exit")) {
@@ -134,7 +177,7 @@ public class Main {
             }
 
             // For now, every other command is treated as invalid.
-            System.out.println(input + ": command not found");
+            System.out.println(command + ": command not found");
         }
     }
 }
