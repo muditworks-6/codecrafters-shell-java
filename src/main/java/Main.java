@@ -141,6 +141,62 @@ public class Main {
         return null;
     }
 
+    // Splits the token list on "|" into one list of tokens per pipeline stage.
+    private static List<List<String>> splitPipeline(List<String> tokens) {
+        List<List<String>> segments = new ArrayList<>();
+        List<String> current = new ArrayList<>();
+        for (String t : tokens) {
+            if (t.equals("|")) {
+                segments.add(current);
+                current = new ArrayList<>();
+            } else {
+                current.add(t);
+            }
+        }
+        segments.add(current);
+        return segments;
+    }
+
+    // Runs a pipeline of two or more external commands, connecting each
+    // stage's stdout to the next stage's stdin. Only external executables
+    // are supported as pipeline stages at this point - builtins aren't.
+    private static void runPipeline(List<String> tokens) {
+        List<List<String>> segments = splitPipeline(tokens);
+        List<ProcessBuilder> builders = new ArrayList<>();
+
+        for (List<String> seg : segments) {
+            if (seg.isEmpty()) {
+                System.err.println("syntax error near unexpected token `|'");
+                return;
+            }
+
+            String cmd = seg.get(0);
+            if (findExecutable(cmd) == null) {
+                System.err.println(cmd + ": command not found");
+                return;
+            }
+
+            ProcessBuilder pb = new ProcessBuilder(seg);
+            pb.directory(new File(currentDirectory));
+            pb.redirectError(ProcessBuilder.Redirect.INHERIT);
+            builders.add(pb);
+        }
+
+        // The first stage reads from the terminal, the last stage writes to
+        // it; startPipeline wires up the pipes between every stage in between.
+        builders.get(0).redirectInput(ProcessBuilder.Redirect.INHERIT);
+        builders.get(builders.size() - 1).redirectOutput(ProcessBuilder.Redirect.INHERIT);
+
+        try {
+            List<Process> processes = ProcessBuilder.startPipeline(builders);
+            for (Process p : processes) {
+                p.waitFor();
+            }
+        } catch (IOException | InterruptedException e) {
+            System.err.println("pipeline: " + e.getMessage());
+        }
+    }
+
     public static void main(String[] args) {
         Scanner scanner = new Scanner(System.in);
 
@@ -155,6 +211,11 @@ public class Main {
 
             List<String> tokens = tokenize(input);
             if (tokens.isEmpty()) {
+                continue;
+            }
+
+            if (tokens.contains("|")) {
+                runPipeline(tokens);
                 continue;
             }
 
