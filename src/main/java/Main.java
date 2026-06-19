@@ -39,6 +39,15 @@ public class Main {
                 continue;
             }
 
+            if (c == '\\') {
+                if (i + 1 < input.length()) {
+                    i++;
+                    current.append(input.charAt(i));
+                    hasToken = true;
+                }
+                continue;
+            }
+
             if (c == '\'') {
                 inSingleQuote = true;
                 hasToken = true;
