@@ -73,6 +73,58 @@ public class Main {
         }
     }
 
+    // Shared reaping logic used both by the automatic pre-prompt check and
+    // by the `jobs` builtin.
+    //
+    // - Walks the job table in insertion order, computing the same +/-/space
+    //   markers `jobs` has always used (based on position in the full list).
+    // - Any job whose process has exited gets a "Done" line printed exactly
+    //   once, and is dropped from the table.
+    // - If listRunning is true, still-running jobs are also printed (this is
+    //   what the `jobs` builtin wants); if false, running jobs are left
+    //   completely alone and nothing is printed for them (this is what the
+    //   automatic pre-prompt reap wants - it should only ever announce
+    //   completions, never list what's still running).
+    private static void reapJobs(boolean listRunning, File outFile, boolean append) {
+        int total = backgroundJobs.size();
+        List<BackgroundJob> remaining = new ArrayList<>();
+
+        for (int i = 0; i < total; i++) {
+            BackgroundJob job = backgroundJobs.get(i);
+            String marker;
+            if (i == total - 1) {
+                marker = "+";
+            } else if (i == total - 2) {
+                marker = "-";
+            } else {
+                marker = " ";
+            }
+
+            if (job.process.isAlive()) {
+                if (listRunning) {
+                    String line = "[" + job.number + "]" + marker + "  "
+                            + String.format("%-24s", "Running")
+                            + job.commandLine + " &";
+                    printLine(line, outFile, append);
+                }
+                remaining.add(job);
+            } else {
+                try {
+                    job.process.waitFor();
+                } catch (InterruptedException ignored) {
+                }
+                String line = "[" + job.number + "]" + marker + "  "
+                        + String.format("%-24s", "Done")
+                        + job.commandLine;
+                printLine(line, outFile, append);
+                // not added to remaining - it's reaped now
+            }
+        }
+
+        backgroundJobs.clear();
+        backgroundJobs.addAll(remaining);
+    }
+
     private static List<String> tokenize(String input) {
         List<String> tokens = new ArrayList<>();
         StringBuilder current = new StringBuilder();
@@ -240,8 +292,9 @@ public class Main {
             case "pwd":
                 return currentDirectory;
             case "jobs":
-                // Empty implementation for now - background job tracking
-                // comes in a later stage.
+                // jobs inside a pipeline stage is rare/unsupported for now -
+                // the real implementation lives in the main loop so it can
+                // share the reaping logic.
                 return null;
             case "type": {
                 if (segArr.length > 1) {
@@ -427,6 +480,13 @@ public class Main {
         Scanner scanner = new Scanner(System.in);
 
         while (true) {
+            // Automatic reaping happens here, right before the prompt is
+            // printed, regardless of what the previous command was
+            // (foreground, builtin, background launch, or even empty
+            // input). It only announces completions ("Done" lines) -
+            // it never prints anything for jobs that are still running.
+            reapJobs(false, null, false);
+
             System.out.print("$ ");
 
             if (!scanner.hasNextLine()) {
@@ -573,38 +633,9 @@ public class Main {
             }
 
             if (command.equals("jobs")) {
-                List<BackgroundJob> stillRunning = new ArrayList<>();
-                int total = backgroundJobs.size();
-                for (int i = 0; i < total; i++) {
-                    BackgroundJob job = backgroundJobs.get(i);
-                    String marker;
-                    if (i == total - 1) {
-                        marker = "+";
-                    } else if (i == total - 2) {
-                        marker = "-";
-                    } else {
-                        marker = " ";
-                    }
-
-                    if (job.process.isAlive()) {
-                        String line = "[" + job.number + "]" + marker + "  "
-                                + String.format("%-24s", "Running")
-                                + job.commandLine + " &";
-                        printLine(line, outFile, appendOutput);
-                        stillRunning.add(job);
-                    } else {
-                        try {
-                            job.process.waitFor();
-                        } catch (InterruptedException ignored) {
-                        }
-                        String line = "[" + job.number + "]" + marker + "  "
-                                + String.format("%-24s", "Done")
-                                + job.commandLine;
-                        printLine(line, outFile, appendOutput);
-                    }
-                }
-                backgroundJobs.clear();
-                backgroundJobs.addAll(stillRunning);
+                // Same reaping logic as the automatic pre-prompt check, but
+                // here we also list the jobs that are still running.
+                reapJobs(true, outFile, appendOutput);
                 continue;
             }
 
