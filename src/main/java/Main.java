@@ -17,6 +17,21 @@ public class Main {
     private static final Set<String> BUILTINS = new HashSet<>(Arrays.asList("echo", "exit", "type", "pwd", "cd", "jobs"));
     private static String currentDirectory = System.getProperty("user.dir");
 
+    private static int nextJobNumber = 1;
+    private static final List<BackgroundJob> backgroundJobs = new ArrayList<>();
+
+    private static class BackgroundJob {
+        final int number;
+        final Process process;
+        final String commandLine;
+
+        BackgroundJob(int number, Process process, String commandLine) {
+            this.number = number;
+            this.process = process;
+            this.commandLine = commandLine;
+        }
+    }
+
     private static boolean isEscapableInDoubleQuotes(char c) {
         return c == '"' || c == '\\' || c == '$' || c == '`' || c == '\n';
     }
@@ -425,6 +440,15 @@ public class Main {
                 continue;
             }
 
+            boolean background = false;
+            if (tokens.get(tokens.size() - 1).equals("&")) {
+                background = true;
+                tokens.remove(tokens.size() - 1);
+                if (tokens.isEmpty()) {
+                    continue;
+                }
+            }
+
             if (tokens.contains("|")) {
                 runPipeline(tokens);
                 continue;
@@ -608,7 +632,13 @@ public class Main {
                     }
 
                     Process process = pb.start();
-                    process.waitFor();
+                    if (background) {
+                        int jobNum = nextJobNumber++;
+                        backgroundJobs.add(new BackgroundJob(jobNum, process, String.join(" ", parts)));
+                        System.out.println("[" + jobNum + "] " + process.pid());
+                    } else {
+                        process.waitFor();
+                    }
                 } catch (IOException | InterruptedException e) {
                     printErrLine(command + ": command not found", errFile, appendError);
                 }
