@@ -11,6 +11,10 @@ public class Main {
     private static final Set<String> BUILTINS = new HashSet<>(Arrays.asList("echo", "exit", "type", "pwd", "cd"));
     private static String currentDirectory = System.getProperty("user.dir");
 
+    private static boolean isEscapableInDoubleQuotes(char c) {
+        return c == '"' || c == '\\' || c == '$' || c == '`' || c == '\n';
+    }
+
     private static List<String> tokenize(String input) {
         List<String> tokens = new ArrayList<>();
         StringBuilder current = new StringBuilder();
@@ -33,6 +37,9 @@ public class Main {
             if (inDoubleQuote) {
                 if (c == '"') {
                     inDoubleQuote = false;
+                } else if (c == '\\' && i + 1 < input.length() && isEscapableInDoubleQuotes(input.charAt(i + 1))) {
+                    i++;
+                    current.append(input.charAt(i));
                 } else {
                     current.append(c);
                 }
