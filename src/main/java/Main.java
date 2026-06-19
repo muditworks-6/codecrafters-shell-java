@@ -1,4 +1,5 @@
 import java.io.File;
+import java.io.IOException;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Scanner;
@@ -78,6 +79,18 @@ public class Main {
                             System.out.println(target + ": not found");
                         }
                     }
+                }
+                continue;
+            }
+
+            if (findExecutable(command) != null) {
+                try {
+                    ProcessBuilder pb = new ProcessBuilder(parts);
+                    pb.inheritIO();
+                    Process process = pb.start();
+                    process.waitFor();
+                } catch (IOException | InterruptedException e) {
+                    System.out.println(command + ": command not found");
                 }
                 continue;
             }
