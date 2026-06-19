@@ -92,6 +92,17 @@ public class Main {
             if (command.equals("cd")) {
                 if (parts.length > 1) {
                     String target = parts[1];
+
+                    if (target.equals("~")) {
+                        String home = System.getenv("HOME");
+                        target = (home != null) ? home : target;
+                    } else if (target.startsWith("~/")) {
+                        String home = System.getenv("HOME");
+                        if (home != null) {
+                            target = home + target.substring(1);
+                        }
+                    }
+
                     File dir = target.startsWith("/")
                             ? new File(target)
                             : new File(currentDirectory, target);
