@@ -1,3 +1,4 @@
+import java.io.File;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Scanner;
@@ -5,6 +6,21 @@ import java.util.Set;
 
 public class Main {
     private static final Set<String> BUILTINS = new HashSet<>(Arrays.asList("echo", "exit", "type"));
+
+    private static String findExecutable(String command) {
+        String path = System.getenv("PATH");
+        if (path == null) {
+            return null;
+        }
+
+        for (String dir : path.split(File.pathSeparator)) {
+            File file = new File(dir, command);
+            if (file.isFile() && file.canExecute()) {
+                return file.getPath();
+            }
+        }
+        return null;
+    }
 
     public static void main(String[] args) {
         Scanner scanner = new Scanner(System.in);
@@ -55,7 +71,12 @@ public class Main {
                     if (BUILTINS.contains(target)) {
                         System.out.println(target + " is a shell builtin");
                     } else {
-                        System.out.println(target + ": not found");
+                        String executable = findExecutable(target);
+                        if (executable != null) {
+                            System.out.println(target + " is " + executable);
+                        } else {
+                            System.out.println(target + ": not found");
+                        }
                     }
                 }
                 continue;
