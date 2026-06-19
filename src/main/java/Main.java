@@ -1,6 +1,10 @@
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.io.PipedInputStream;
+import java.io.PipedOutputStream;
 import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -157,43 +161,246 @@ public class Main {
         return segments;
     }
 
-    // Runs a pipeline of two or more external commands, connecting each
-    // stage's stdout to the next stage's stdin. Only external executables
-    // are supported as pipeline stages at this point - builtins aren't.
+    // Copies all bytes from src to dst, then closes both. Used to bridge an
+    // external process's stdout/stdin to the next/previous pipeline stage.
+    private static void copyAndClose(InputStream src, OutputStream dst) {
+        try {
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = src.read(buf)) != -1) {
+                dst.write(buf, 0, n);
+                dst.flush();
+            }
+        } catch (IOException e) {
+            // A broken pipe here just means the downstream/upstream side
+            // closed early (e.g. `head` exiting after a few lines) - expected.
+        } finally {
+            try {
+                dst.close();
+            } catch (IOException ignored) {
+            }
+            try {
+                src.close();
+            } catch (IOException ignored) {
+            }
+        }
+    }
+
+    // Reads and discards everything from src. Used so a builtin stage (which
+    // never reads its stdin) doesn't block whatever is feeding it upstream.
+    private static void drain(InputStream src) {
+        try {
+            byte[] buf = new byte[8192];
+            while (src.read(buf) != -1) {
+                // discard
+            }
+        } catch (IOException e) {
+            // ignore
+        } finally {
+            try {
+                src.close();
+            } catch (IOException ignored) {
+            }
+        }
+    }
+
+    // Executes a builtin for one pipeline stage and returns the single line
+    // it would print to stdout, or null if it produces no stdout output.
+    // Errors (e.g. "not found", "No such file or directory") are written
+    // directly to System.err, since builtin errors are never piped.
+    private static String computeBuiltinOutput(String cmd, List<String> seg) {
+        String[] segArr = seg.toArray(new String[0]);
+
+        switch (cmd) {
+            case "echo": {
+                StringBuilder sb = new StringBuilder();
+                for (int i = 1; i < segArr.length; i++) {
+                    if (i > 1) {
+                        sb.append(" ");
+                    }
+                    sb.append(segArr[i]);
+                }
+                return sb.toString();
+            }
+            case "pwd":
+                return currentDirectory;
+            case "type": {
+                if (segArr.length > 1) {
+                    String target = segArr[1];
+                    if (BUILTINS.contains(target)) {
+                        return target + " is a shell builtin";
+                    }
+                    String executable = findExecutable(target);
+                    if (executable != null) {
+                        return target + " is " + executable;
+                    }
+                    System.err.println(target + ": not found");
+                }
+                return null;
+            }
+            case "cd": {
+                if (segArr.length > 1) {
+                    String target = segArr[1];
+
+                    if (target.equals("~")) {
+                        String home = System.getenv("HOME");
+                        target = (home != null) ? home : target;
+                    } else if (target.startsWith("~/")) {
+                        String home = System.getenv("HOME");
+                        if (home != null) {
+                            target = home + target.substring(1);
+                        }
+                    }
+
+                    File dir = target.startsWith("/")
+                            ? new File(target)
+                            : new File(currentDirectory, target);
+
+                    if (dir.isDirectory()) {
+                        try {
+                            currentDirectory = dir.getCanonicalPath();
+                        } catch (IOException e) {
+                            currentDirectory = dir.getPath();
+                        }
+                    } else {
+                        System.err.println("cd: " + target + ": No such file or directory");
+                    }
+                }
+                return null;
+            }
+            case "exit": {
+                int exitCode = 0;
+                if (segArr.length > 1) {
+                    try {
+                        exitCode = Integer.parseInt(segArr[1]);
+                    } catch (NumberFormatException e) {
+                        exitCode = 0;
+                    }
+                }
+                System.exit(exitCode);
+                return null; // unreachable
+            }
+            default:
+                return null;
+        }
+    }
+
+    // Runs a pipeline of two or more stages, each of which may be a shell
+    // builtin or an external command, connecting each stage's stdout to the
+    // next stage's stdin.
     private static void runPipeline(List<String> tokens) {
         List<List<String>> segments = splitPipeline(tokens);
-        List<ProcessBuilder> builders = new ArrayList<>();
+        int n = segments.size();
 
+        // Validate every stage up front so a bad command anywhere in the
+        // pipeline aborts the whole thing before anything starts running.
         for (List<String> seg : segments) {
             if (seg.isEmpty()) {
                 System.err.println("syntax error near unexpected token `|'");
                 return;
             }
-
             String cmd = seg.get(0);
-            if (findExecutable(cmd) == null) {
+            if (!BUILTINS.contains(cmd) && findExecutable(cmd) == null) {
                 System.err.println(cmd + ": command not found");
                 return;
             }
-
-            ProcessBuilder pb = new ProcessBuilder(seg);
-            pb.directory(new File(currentDirectory));
-            pb.redirectError(ProcessBuilder.Redirect.INHERIT);
-            builders.add(pb);
         }
 
-        // The first stage reads from the terminal, the last stage writes to
-        // it; startPipeline wires up the pipes between every stage in between.
-        builders.get(0).redirectInput(ProcessBuilder.Redirect.INHERIT);
-        builders.get(builders.size() - 1).redirectOutput(ProcessBuilder.Redirect.INHERIT);
-
+        PipedOutputStream[] pipeOut = new PipedOutputStream[n - 1];
+        PipedInputStream[] pipeIn = new PipedInputStream[n - 1];
         try {
-            List<Process> processes = ProcessBuilder.startPipeline(builders);
-            for (Process p : processes) {
-                p.waitFor();
+            for (int i = 0; i < n - 1; i++) {
+                pipeOut[i] = new PipedOutputStream();
+                pipeIn[i] = new PipedInputStream(pipeOut[i]);
             }
-        } catch (IOException | InterruptedException e) {
+        } catch (IOException e) {
             System.err.println("pipeline: " + e.getMessage());
+            return;
+        }
+
+        Process[] processes = new Process[n];
+        List<Thread> bridgeThreads = new ArrayList<>();
+
+        for (int i = 0; i < n; i++) {
+            List<String> seg = segments.get(i);
+            String cmd = seg.get(0);
+            boolean isFirst = (i == 0);
+            boolean isLast = (i == n - 1);
+            boolean isBuiltinCmd = BUILTINS.contains(cmd);
+
+            if (!isBuiltinCmd) {
+                try {
+                    ProcessBuilder pb = new ProcessBuilder(seg.toArray(new String[0]));
+                    pb.directory(new File(currentDirectory));
+                    pb.redirectError(ProcessBuilder.Redirect.INHERIT);
+                    pb.redirectInput(isFirst ? ProcessBuilder.Redirect.INHERIT : ProcessBuilder.Redirect.PIPE);
+                    pb.redirectOutput(isLast ? ProcessBuilder.Redirect.INHERIT : ProcessBuilder.Redirect.PIPE);
+                    Process proc = pb.start();
+                    processes[i] = proc;
+
+                    if (!isFirst) {
+                        InputStream src = pipeIn[i - 1];
+                        OutputStream dst = proc.getOutputStream();
+                        Thread t = new Thread(() -> copyAndClose(src, dst));
+                        t.start();
+                        bridgeThreads.add(t);
+                    }
+                    if (!isLast) {
+                        InputStream src = proc.getInputStream();
+                        OutputStream dst = pipeOut[i];
+                        Thread t = new Thread(() -> copyAndClose(src, dst));
+                        t.start();
+                        bridgeThreads.add(t);
+                    }
+                } catch (IOException e) {
+                    System.err.println(cmd + ": command not found");
+                }
+            } else {
+                if (!isFirst) {
+                    InputStream src = pipeIn[i - 1];
+                    Thread t = new Thread(() -> drain(src));
+                    t.start();
+                    bridgeThreads.add(t);
+                }
+
+                String outputLine = computeBuiltinOutput(cmd, seg);
+
+                if (outputLine != null) {
+                    if (isLast) {
+                        System.out.println(outputLine);
+                    } else {
+                        try {
+                            pipeOut[i].write((outputLine + "\n").getBytes());
+                            pipeOut[i].flush();
+                        } catch (IOException e) {
+                            // ignore - downstream may have already closed
+                        }
+                    }
+                }
+
+                if (!isLast) {
+                    try {
+                        pipeOut[i].close();
+                    } catch (IOException ignored) {
+                    }
+                }
+            }
+        }
+
+        for (Process proc : processes) {
+            if (proc != null) {
+                try {
+                    proc.waitFor();
+                } catch (InterruptedException ignored) {
+                }
+            }
+        }
+
+        for (Thread t : bridgeThreads) {
+            try {
+                t.join();
+            } catch (InterruptedException ignored) {
+            }
         }
     }
 
