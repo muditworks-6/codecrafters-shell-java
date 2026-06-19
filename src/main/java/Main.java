@@ -183,7 +183,12 @@ public class Main {
                 errFile = errorTarget.startsWith("/")
                         ? new File(errorTarget)
                         : new File(currentDirectory, errorTarget);
+                try {
+                    new FileOutputStream(errFile).close();
+                } catch (IOException ignored) {
             }
+            }
+        }
 
             if (command.equals("exit")) {
                 int exitCode = 0;
