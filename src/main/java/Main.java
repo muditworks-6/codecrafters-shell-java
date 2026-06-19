@@ -15,19 +15,39 @@ public class Main {
         List<String> tokens = new ArrayList<>();
         StringBuilder current = new StringBuilder();
         boolean inSingleQuote = false;
+        boolean inDoubleQuote = false;
         boolean hasToken = false;
 
         for (int i = 0; i < input.length(); i++) {
             char c = input.charAt(i);
 
+            if (inSingleQuote) {
+                if (c == '\'') {
+                    inSingleQuote = false;
+                } else {
+                    current.append(c);
+                }
+                continue;
+            }
+
+            if (inDoubleQuote) {
+                if (c == '"') {
+                    inDoubleQuote = false;
+                } else {
+                    current.append(c);
+                }
+                continue;
+            }
+
             if (c == '\'') {
-                inSingleQuote = !inSingleQuote;
+                inSingleQuote = true;
                 hasToken = true;
                 continue;
             }
 
-            if (inSingleQuote) {
-                current.append(c);
+            if (c == '"') {
+                inDoubleQuote = true;
+                hasToken = true;
                 continue;
             }
 
