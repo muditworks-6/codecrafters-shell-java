@@ -6,7 +6,8 @@ import java.util.Scanner;
 import java.util.Set;
 
 public class Main {
-    private static final Set<String> BUILTINS = new HashSet<>(Arrays.asList("echo", "exit", "type", "pwd"));
+    private static final Set<String> BUILTINS = new HashSet<>(Arrays.asList("echo", "exit", "type", "pwd", "cd"));
+    private static String currentDirectory = System.getProperty("user.dir");
 
     private static String findExecutable(String command) {
         String path = System.getenv("PATH");
@@ -84,13 +85,36 @@ public class Main {
             }
 
             if (command.equals("pwd")) {
-                System.out.println(System.getProperty("user.dir"));
+                System.out.println(currentDirectory);
+                continue;
+            }
+
+            if (command.equals("cd")) {
+                if (parts.length > 1) {
+                    String target = parts[1];
+                    if (target.startsWith("/")) {
+                        File dir = new File(target);
+                        if (dir.isDirectory()) {
+                            try {
+                                currentDirectory = dir.getCanonicalPath();
+                            } catch (IOException e) {
+                                currentDirectory = dir.getPath();
+                            }
+                        } else {
+                            System.out.println("cd: " + target + ": No such file or directory");
+                        }
+                    } else {
+                        // Relative paths and ~ are handled in a later stage.
+                        System.out.println("cd: " + target + ": No such file or directory");
+                    }
+                }
                 continue;
             }
 
             if (findExecutable(command) != null) {
                 try {
                     ProcessBuilder pb = new ProcessBuilder(parts);
+                    pb.directory(new File(currentDirectory));
                     pb.inheritIO();
                     Process process = pb.start();
                     process.waitFor();
