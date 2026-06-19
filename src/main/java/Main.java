@@ -92,19 +92,17 @@ public class Main {
             if (command.equals("cd")) {
                 if (parts.length > 1) {
                     String target = parts[1];
-                    if (target.startsWith("/")) {
-                        File dir = new File(target);
-                        if (dir.isDirectory()) {
-                            try {
-                                currentDirectory = dir.getCanonicalPath();
-                            } catch (IOException e) {
-                                currentDirectory = dir.getPath();
-                            }
-                        } else {
-                            System.out.println("cd: " + target + ": No such file or directory");
+                    File dir = target.startsWith("/")
+                            ? new File(target)
+                            : new File(currentDirectory, target);
+
+                    if (dir.isDirectory()) {
+                        try {
+                            currentDirectory = dir.getCanonicalPath();
+                        } catch (IOException e) {
+                            currentDirectory = dir.getPath();
                         }
                     } else {
-                        // Relative paths and ~ are handled in a later stage.
                         System.out.println("cd: " + target + ": No such file or directory");
                     }
                 }
