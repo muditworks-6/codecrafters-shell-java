@@ -573,21 +573,38 @@ public class Main {
             }
 
             if (command.equals("jobs")) {
-                for (int i = 0; i < backgroundJobs.size(); i++) {
+                List<BackgroundJob> stillRunning = new ArrayList<>();
+                int total = backgroundJobs.size();
+                for (int i = 0; i < total; i++) {
                     BackgroundJob job = backgroundJobs.get(i);
                     String marker;
-                    if (i == backgroundJobs.size() - 1) {
+                    if (i == total - 1) {
                         marker = "+";
-                    } else if (i == backgroundJobs.size() - 2) {
+                    } else if (i == total - 2) {
                         marker = "-";
                     } else {
                         marker = " ";
                     }
-                    String line = "[" + job.number + "]" + marker + "  "
-                            + String.format("%-24s", "Running")
-                            + job.commandLine + " &";
-                    printLine(line, outFile, appendOutput);
+
+                    if (job.process.isAlive()) {
+                        String line = "[" + job.number + "]" + marker + "  "
+                                + String.format("%-24s", "Running")
+                                + job.commandLine + " &";
+                        printLine(line, outFile, appendOutput);
+                        stillRunning.add(job);
+                    } else {
+                        try {
+                            job.process.waitFor();
+                        } catch (InterruptedException ignored) {
+                        }
+                        String line = "[" + job.number + "]" + marker + "  "
+                                + String.format("%-24s", "Done")
+                                + job.commandLine;
+                        printLine(line, outFile, appendOutput);
+                    }
                 }
+                backgroundJobs.clear();
+                backgroundJobs.addAll(stillRunning);
                 continue;
             }
 
