@@ -17,8 +17,20 @@ public class Main {
     private static final Set<String> BUILTINS = new HashSet<>(Arrays.asList("echo", "exit", "type", "pwd", "cd", "jobs"));
     private static String currentDirectory = System.getProperty("user.dir");
 
-    private static int nextJobNumber = 1;
     private static final List<BackgroundJob> backgroundJobs = new ArrayList<>();
+
+    // Job numbers are recycled rather than ever-increasing: an empty table
+    // starts back at 1, and otherwise the next number is one more than the
+    // current highest in the table (regardless of insertion order).
+    private static int nextJobNumber() {
+        int max = 0;
+        for (BackgroundJob job : backgroundJobs) {
+            if (job.number > max) {
+                max = job.number;
+            }
+        }
+        return max + 1;
+    }
 
     private static class BackgroundJob {
         final int number;
@@ -694,7 +706,7 @@ public class Main {
 
                     Process process = pb.start();
                     if (background) {
-                        int jobNum = nextJobNumber++;
+                        int jobNum = nextJobNumber();
                         backgroundJobs.add(new BackgroundJob(jobNum, process, String.join(" ", parts)));
                         System.out.println("[" + jobNum + "] " + process.pid());
                     } else {
