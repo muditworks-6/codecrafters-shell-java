@@ -6,7 +6,7 @@ import java.util.Scanner;
 import java.util.Set;
 
 public class Main {
-    private static final Set<String> BUILTINS = new HashSet<>(Arrays.asList("echo", "exit", "type"));
+    private static final Set<String> BUILTINS = new HashSet<>(Arrays.asList("echo", "exit", "type", "pwd"));
 
     private static String findExecutable(String command) {
         String path = System.getenv("PATH");
@@ -80,6 +80,11 @@ public class Main {
                         }
                     }
                 }
+                continue;
+            }
+
+            if (command.equals("pwd")) {
+                System.out.println(System.getProperty("user.dir"));
                 continue;
             }
 
