@@ -161,7 +161,29 @@ public class Main {
                 continue;
             }
 
-            String outputTarget = extractRedirect(tokens, ">", "1>");
+            boolean appendOutput = false;
+String outputTarget = null;
+
+for (int idx = 0; idx < tokens.size(); idx++) {
+    String t = tokens.get(idx);
+
+    if ((t.equals(">") || t.equals("1>")) && idx + 1 < tokens.size()) {
+        outputTarget = tokens.get(idx + 1);
+        tokens.remove(idx + 1);
+        tokens.remove(idx);
+        break;
+    }
+
+    if ((t.equals(">>") || t.equals("1>>")) && idx + 1 < tokens.size()) {
+        outputTarget = tokens.get(idx + 1);
+        appendOutput = true;
+        tokens.remove(idx + 1);
+        tokens.remove(idx);
+        break;
+    }
+}
+
+String errorTarget = extractRedirect(tokens, "2>", null);
             String errorTarget = extractRedirect(tokens, "2>", null);
 
             if (tokens.isEmpty()) {
