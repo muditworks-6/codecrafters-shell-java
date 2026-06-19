@@ -573,8 +573,21 @@ public class Main {
             }
 
             if (command.equals("jobs")) {
-                // Empty implementation for now - background job tracking
-                // comes in a later stage.
+                for (int i = 0; i < backgroundJobs.size(); i++) {
+                    BackgroundJob job = backgroundJobs.get(i);
+                    String marker;
+                    if (i == backgroundJobs.size() - 1) {
+                        marker = "+";
+                    } else if (i == backgroundJobs.size() - 2) {
+                        marker = "-";
+                    } else {
+                        marker = " ";
+                    }
+                    String line = "[" + job.number + "]" + marker + "  "
+                            + String.format("%-24s", "Running")
+                            + job.commandLine + " &";
+                    printLine(line, outFile, appendOutput);
+                }
                 continue;
             }
 
