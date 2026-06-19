@@ -187,7 +187,6 @@ public class Main {
                     new FileOutputStream(errFile).close();
                 } catch (IOException ignored) {
             }
-            }
         }
 
             if (command.equals("exit")) {
