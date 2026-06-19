@@ -32,6 +32,18 @@ public class Main {
                 System.exit(exitCode);
             }
 
+            if (command.equals("echo")) {
+                StringBuilder sb = new StringBuilder();
+                for (int i = 1; i < parts.length; i++) {
+                    if (i > 1) {
+                        sb.append(" ");
+                    }
+                    sb.append(parts[i]);
+                }
+                System.out.println(sb.toString());
+                continue;
+            }
+
             // For now, every other command is treated as invalid.
             System.out.println(input + ": command not found");
         }
