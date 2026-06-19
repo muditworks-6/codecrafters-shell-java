@@ -14,7 +14,7 @@ import java.util.Scanner;
 import java.util.Set;
 
 public class Main {
-    private static final Set<String> BUILTINS = new HashSet<>(Arrays.asList("echo", "exit", "type", "pwd", "cd"));
+    private static final Set<String> BUILTINS = new HashSet<>(Arrays.asList("echo", "exit", "type", "pwd", "cd", "jobs"));
     private static String currentDirectory = System.getProperty("user.dir");
 
     private static boolean isEscapableInDoubleQuotes(char c) {
@@ -224,6 +224,10 @@ public class Main {
             }
             case "pwd":
                 return currentDirectory;
+            case "jobs":
+                // Empty implementation for now - background job tracking
+                // comes in a later stage.
+                return null;
             case "type": {
                 if (segArr.length > 1) {
                     String target = segArr[1];
@@ -541,6 +545,12 @@ public class Main {
 
             if (command.equals("pwd")) {
                 printLine(currentDirectory, outFile, appendOutput);
+                continue;
+            }
+
+            if (command.equals("jobs")) {
+                // Empty implementation for now - background job tracking
+                // comes in a later stage.
                 continue;
             }
 
